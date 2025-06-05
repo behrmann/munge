@@ -1030,8 +1030,12 @@ _conf_open_keyfile (const char *keyfile, int got_force)
     struct stat  st;
     int          n;
     char         keydir [PATH_MAX];
+    char*        credentialsdir;
     char         ebuf [1024];
     int          fd;
+    int          dirfd;
+
+    credentialsdir = getenv("CREDENTIALS_DIRECTORY");
 
     if ((keyfile == NULL) || (*keyfile == '\0')) {
         log_err (EMUNGE_SNAFU, LOG_ERR, "Keyfile name is undefined");
@@ -1039,9 +1043,24 @@ _conf_open_keyfile (const char *keyfile, int got_force)
     is_symlink = (lstat (keyfile, &st) == 0) ? S_ISLNK (st.st_mode) : 0;
 
     if (stat (keyfile, &st) < 0) {
-        log_err (EMUNGE_SNAFU, LOG_ERR,
-            "Failed to find keyfile \"%s\": %s (%s)",
-            keyfile, strerror (errno), "Did you run mungekey?");
+        /* Check if CREDENTIALS_DIRECTORY is defined and fall back to old error
+           in case it is not.
+         */
+        if (credentialsdir == NULL) {
+            log_err (EMUNGE_SNAFU, LOG_ERR,
+                "Failed to find keyfile \"%s\": %s (%s)",
+                keyfile, strerror (errno), "Did you run mungekey?");
+        }
+        if ((dirfd = open (credentialsdir, O_DIRECTORY)) < 0) {
+            log_errno (EMUNGE_SNAFU, LOG_ERR, "Failed to open $CREDENTIALS_DIRECTORY");
+        }
+        if ((fd = openat (dirfd, keyfile, O_RDONLY)) < 0) {
+            log_errno (EMUNGE_SNAFU, LOG_ERR, "Failed to open munge.key in $CREDENTIALS_DIRECTORY");
+        }
+        if (close (dirfd) < 0) {
+            log_errno (EMUNGE_SNAFU, LOG_ERR, "Failed to close $CREDENTIALS_DIRECTORY");
+        }
+        return (fd);
     }
     if (!S_ISREG (st.st_mode)) {
         log_err (EMUNGE_SNAFU, LOG_ERR,
